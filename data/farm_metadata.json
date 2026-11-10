@@ -1,0 +1,24 @@
+{
+  "name": "TerraSpectra Central Valley Parcel 01",
+  "crs": "EPSG:32610",
+  "shape": [
+    220,
+    201,
+    201
+  ],
+  "pixel_size_m": 10.0,
+  "total_acres": 998.33,
+  "blight_zone_acres": 4.87,
+  "bounds_wgs84": {
+    "min_lon": -120.204547,
+    "min_lat": 36.61624,
+    "max_lon": -120.181436,
+    "max_lat": 36.634868
+  },
+  "center_wgs84": {
+    "lon": -120.192992,
+    "lat": 36.625554
+  },
+  "geotiff": "farm_hyperspectral.tif",
+  "hdf5": "farm_hyperspectral.h5"
+}

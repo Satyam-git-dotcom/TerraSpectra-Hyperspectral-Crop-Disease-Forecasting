@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# Geospatial & Model Data Binaries
+data/*.tif
+data/*.tiff
+data/*.h5
+data/*.hdf5
+*.pt
+*.pth
+
+# macOS
+.DS_Store
+
