@@ -21,15 +21,26 @@ export const FARM_CENTER = {
   latitude: (DEFAULT_FARM_BOUNDS.minLat + DEFAULT_FARM_BOUNDS.maxLat) / 2,
 };
 
+export const FARM_PARCEL_METADATA = {
+  name: "TerraSpectra Central Valley Parcel 01",
+  shortName: "Central Valley Parcel 01",
+  crs: "EPSG:32610",
+  totalAcres: 998.33,
+  gridDimensions: "201 × 201 px",
+  resolutionMeters: 10,
+  bandCount: 220,
+  wavelengthRangeNm: "400–2500 nm",
+};
+
 export const FARM_BOUNDARY_GEOJSON = {
   type: "FeatureCollection" as const,
   features: [
     {
       type: "Feature" as const,
       properties: {
-        name: "TerraSpectra Central Valley Parcel 01",
-        acres: 998.3,
-        crs: "EPSG:32610",
+        name: FARM_PARCEL_METADATA.name,
+        acres: FARM_PARCEL_METADATA.totalAcres,
+        crs: FARM_PARCEL_METADATA.crs,
       },
       geometry: {
         type: "Polygon" as const,
