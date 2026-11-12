@@ -168,3 +168,4 @@ if __name__ == "__main__":
         loaded = load_cube(sample_path)
         print(f"=== {sample_path.name} ===")
         print(json.dumps(summarize_cube(loaded), indent=2))
+

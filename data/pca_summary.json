@@ -1,0 +1,29 @@
+{
+  "input_file": "farm_hyperspectral.h5",
+  "input_shape": [
+    220,
+    201,
+    201
+  ],
+  "output_shape": [
+    16,
+    201,
+    201
+  ],
+  "n_components": 16,
+  "cumulative_explained_variance": 0.927962,
+  "top5_explained_variance_ratio": [
+    0.769398,
+    0.122566,
+    0.008539,
+    0.003335,
+    0.00315
+  ],
+  "separability": {
+    "healthy_pixels": 39007,
+    "blight_pixels": 197,
+    "centroid_l2_distance": 28.7922,
+    "fisher_ratio_top3": 192.78
+  },
+  "output_array": "farm_pca16.npy"
+}
