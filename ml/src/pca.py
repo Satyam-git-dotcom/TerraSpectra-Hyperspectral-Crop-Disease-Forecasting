@@ -5,12 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import struct
 from typing import Any
+import zlib
 
 import numpy as np
 from sklearn.decomposition import IncrementalPCA, PCA
 
-from src.config import DATA_DIR, DEFAULT_HDF5_PATH
+from src.config import (
+    DATA_DIR,
+    DEFAULT_HDF5_PATH,
+    DEFAULT_PCA_IMAGE_PATH,
+    FRONTEND_PCA_IMAGE_PATH,
+)
 from src.loader import HyperspectralCube, load_cube
 
 DEFAULT_PCA_ARRAY_PATH = DATA_DIR / "farm_pca16.npy"
@@ -162,19 +169,84 @@ class SpectralPCA:
         ).copy()
 
 
+def save_png_rgb(image: np.ndarray, path: Path | str) -> Path:
+    """Save a (height, width, 3) uint8 numpy array as an RFC-compliant PNG."""
+    target_path = Path(path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise ValueError(f"Expected shape (H, W, 3), got {image.shape}")
+    if image.dtype != np.uint8:
+        image = np.clip(image, 0, 255).astype(np.uint8)
+
+    height, width, _ = image.shape
+    raw = bytearray()
+    for row in range(height):
+        raw.append(0)  # Filter type 0 (None)
+        raw.extend(image[row].tobytes())
+
+    compressed = zlib.compress(bytes(raw), level=6)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    with open(target_path, "wb") as f:
+        f.write(header)
+        f.write(chunk(b"IHDR", ihdr))
+        f.write(chunk(b"IDAT", compressed))
+        f.write(chunk(b"IEND", b""))
+
+    return target_path
+
+
+def export_pca_rgb_image(
+    components: np.ndarray,
+    output_path: Path | str,
+) -> Path:
+    """Compose top-3 PCA components into a contrast-stretched RGB false-color PNG."""
+    if components.ndim != 3 or components.shape[0] < 3:
+        raise ValueError("components must have shape (n_components >= 3, height, width)")
+
+    rgb_channels = []
+    for c in range(3):
+        ch = components[c]
+        p2, p98 = np.percentile(ch, (2.0, 98.0))
+        if p98 - p2 > 1e-6:
+            stretched = (ch - p2) / (p98 - p2)
+        else:
+            stretched = np.zeros_like(ch)
+        stretched_uint8 = np.clip(stretched * 255.0, 0, 255).astype(np.uint8)
+        rgb_channels.append(stretched_uint8)
+
+    rgb_image = np.stack(rgb_channels, axis=-1)  # (H, W, 3)
+    return save_png_rgb(rgb_image, output_path)
+
+
 def run_pca_pipeline(
     input_path: Path = DEFAULT_HDF5_PATH,
     output_array_path: Path = DEFAULT_PCA_ARRAY_PATH,
     output_summary_path: Path = DEFAULT_PCA_SUMMARY_PATH,
+    output_image_paths: tuple[Path, ...] = (
+        DEFAULT_PCA_IMAGE_PATH,
+        FRONTEND_PCA_IMAGE_PATH,
+    ),
     n_components: int = 16,
 ) -> dict[str, Any]:
-    """Load hyperspectral cube, run SpectralPCA, and persist outputs."""
+    """Load hyperspectral cube, run SpectralPCA, and persist outputs & RGB overlays."""
     cube = load_cube(input_path)
     pca = SpectralPCA(n_components=n_components)
     result = pca.fit_transform(cube)
 
     output_array_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_array_path, result.components)
+
+    exported_images = []
+    for img_path in output_image_paths:
+        exported_path = export_pca_rgb_image(result.components, img_path)
+        exported_images.append(str(exported_path.name))
 
     summary: dict[str, Any] = {
         "input_file": input_path.name,
@@ -185,6 +257,7 @@ def run_pca_pipeline(
         "top5_explained_variance_ratio": result.explained_variance_ratio[:5],
         "separability": result.separability,
         "output_array": output_array_path.name,
+        "exported_images": exported_images,
     }
     output_summary_path.write_text(json.dumps(summary, indent=2))
     return summary

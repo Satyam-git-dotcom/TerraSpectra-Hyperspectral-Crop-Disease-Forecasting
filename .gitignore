@@ -21,6 +21,7 @@ data/*.tiff
 data/*.h5
 data/*.hdf5
 data/*.npy
+data/*.png
 *.pt
 *.pth
 

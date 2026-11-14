@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import DeckGL from "@deck.gl/react";
-import { GeoJsonLayer, TextLayer } from "@deck.gl/layers";
+import { BitmapLayer, GeoJsonLayer, TextLayer } from "@deck.gl/layers";
 import Map, { NavigationControl } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import {
+  DEFAULT_FARM_BOUNDS,
   FARM_BOUNDARY_GEOJSON,
   FARM_CENTER,
   FARM_PARCEL_METADATA,
@@ -23,6 +24,7 @@ interface LayerToggles {
   quadrants: boolean;
   labels: boolean;
   corridors: boolean;
+  pcaOverlay: boolean;
 }
 
 const INITIAL_VIEW_STATE: MapViewState = {
@@ -80,11 +82,13 @@ function getMapStyle(mode: BasemapMode) {
 export function FarmMap() {
   const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW_STATE);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("satellite");
+  const [pcaOpacity, setPcaOpacity] = useState<number>(0.75);
   const [toggles, setToggles] = useState<LayerToggles>({
     boundary: true,
     quadrants: true,
     labels: true,
     corridors: true,
+    pcaOverlay: true,
   });
 
   const mapStyle = useMemo(() => getMapStyle(basemapMode), [basemapMode]);
@@ -96,7 +100,25 @@ export function FarmMap() {
   const layers = useMemo(() => {
     const activeLayers = [];
 
-    // 1. Field Quadrants (underneath)
+    // 1. Georeferenced PCA False-Color Image Overlay (Base raster enhancement)
+    if (toggles.pcaOverlay) {
+      activeLayers.push(
+        new BitmapLayer({
+          id: "farm-pca-false-color-layer",
+          bounds: [
+            DEFAULT_FARM_BOUNDS.minLon,
+            DEFAULT_FARM_BOUNDS.minLat,
+            DEFAULT_FARM_BOUNDS.maxLon,
+            DEFAULT_FARM_BOUNDS.maxLat,
+          ],
+          image: "/overlays/farm_pca_rgb.png",
+          opacity: pcaOpacity,
+          pickable: false,
+        })
+      );
+    }
+
+    // 2. Field Quadrants
     if (toggles.quadrants) {
       activeLayers.push(
         new GeoJsonLayer({
@@ -106,7 +128,13 @@ export function FarmMap() {
           stroked: true,
           autoHighlight: true,
           highlightColor: [255, 255, 255, 45],
-          getFillColor: (f) => (f.properties as QuadrantProperties).fillColor,
+          getFillColor: (f) => {
+            const base = (f.properties as QuadrantProperties).fillColor;
+            // Reduce fill opacity slightly when PCA overlay is active to let false-colors show through
+            return toggles.pcaOverlay
+              ? [base[0], base[1], base[2], Math.min(base[3], 24)]
+              : base;
+          },
           getLineColor: [255, 255, 255, 80],
           getLineWidth: 1,
           lineWidthMinPixels: 1,
@@ -115,7 +143,7 @@ export function FarmMap() {
       );
     }
 
-    // 2. Central Irrigation & Access Corridors
+    // 3. Central Irrigation & Access Corridors
     if (toggles.corridors) {
       activeLayers.push(
         new GeoJsonLayer({
@@ -132,7 +160,7 @@ export function FarmMap() {
       );
     }
 
-    // 3. Outer Parcel Perimeter
+    // 4. Outer Parcel Perimeter
     if (toggles.boundary) {
       activeLayers.push(
         new GeoJsonLayer({
@@ -149,7 +177,7 @@ export function FarmMap() {
       );
     }
 
-    // 4. Centroid Labels for Quadrants
+    // 5. Centroid Labels for Quadrants
     if (toggles.labels) {
       activeLayers.push(
         new TextLayer<LabelDatum>({
@@ -162,7 +190,7 @@ export function FarmMap() {
           getBackgroundColor: [15, 23, 42, 200],
           background: true,
           backgroundPadding: [8, 4],
-          fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+          fontFamily: "Inter, system-ui, -apple-system, sans-serif",
           fontWeight: 600,
           billboard: true,
           sizeUnits: "pixels",
@@ -172,7 +200,7 @@ export function FarmMap() {
     }
 
     return activeLayers;
-  }, [toggles]);
+  }, [toggles, pcaOpacity]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -225,15 +253,15 @@ export function FarmMap() {
           left: 16,
           padding: "14px 16px",
           borderRadius: 12,
-          background: "rgba(9, 13, 22, 0.88)",
-          backdropFilter: "blur(10px)",
-          border: "1px solid rgba(52, 211, 153, 0.3)",
-          width: 350,
+          background: "rgba(9, 13, 22, 0.9)",
+          backdropFilter: "blur(12px)",
+          border: "1px solid rgba(52, 211, 153, 0.35)",
+          width: 360,
           boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
         }}
       >
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: "#34d399" }}>
-          TERRASPECTRA · WEEK 1 / DAY 4
+          TERRASPECTRA · WEEK 1 FINALE
         </div>
         <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>
           {FARM_PARCEL_METADATA.shortName}
@@ -244,7 +272,7 @@ export function FarmMap() {
           </div>
           <div>
             Cube: {FARM_PARCEL_METADATA.gridDimensions} @ {FARM_PARCEL_METADATA.resolutionMeters}m ·{" "}
-            {FARM_PARCEL_METADATA.bandCount} bands
+            {FARM_PARCEL_METADATA.bandCount} bands → 16 PCs (92.8% var)
           </div>
         </div>
 
@@ -344,6 +372,76 @@ export function FarmMap() {
               );
             })}
           </div>
+        </div>
+
+        {/* PCA False-Color Overlay Controls */}
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                color: toggles.pcaOverlay ? "#34d399" : "#64748b",
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={toggles.pcaOverlay}
+                onChange={() => toggleLayer("pcaOverlay")}
+                style={{ accentColor: "#34d399", cursor: "pointer" }}
+              />
+              PCA False-Color (PC1–3)
+            </label>
+            {toggles.pcaOverlay && (
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                {Math.round(pcaOpacity * 100)}%
+              </span>
+            )}
+          </div>
+
+          {toggles.pcaOverlay && (
+            <div style={{ marginTop: 8 }}>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={pcaOpacity}
+                onChange={(e) => setPcaOpacity(parseFloat(e.target.value))}
+                style={{
+                  width: "100%",
+                  accentColor: "#34d399",
+                  cursor: "pointer",
+                }}
+              />
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  borderRadius: 6,
+                  background: "rgba(245, 158, 11, 0.12)",
+                  border: "1px solid rgba(245, 158, 11, 0.25)",
+                  fontSize: 10.5,
+                  color: "#fcd34d",
+                  lineHeight: 1.4,
+                }}
+              >
+                🔍 <strong>Spectral Anomaly in Zone B:</strong> Top-3 PCs map subtle red-edge/SWIR
+                shifts into distinctive false-color contrast before visible yellowing occurs.
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ fontSize: 11, color: "#64748b", marginTop: 10 }}>

@@ -28,4 +28,7 @@ DATA_DIR = REPO_ROOT / "data"
 DEFAULT_GEOTIFF_PATH = DATA_DIR / "farm_hyperspectral.tif"
 DEFAULT_HDF5_PATH = DATA_DIR / "farm_hyperspectral.h5"
 DEFAULT_METADATA_PATH = DATA_DIR / "farm_metadata.json"
+DEFAULT_PCA_IMAGE_PATH = DATA_DIR / "farm_pca_rgb.png"
+FRONTEND_OVERLAYS_DIR = REPO_ROOT / "frontend" / "public" / "overlays"
+FRONTEND_PCA_IMAGE_PATH = FRONTEND_OVERLAYS_DIR / "farm_pca_rgb.png"
 

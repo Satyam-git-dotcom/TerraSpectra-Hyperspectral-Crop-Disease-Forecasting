@@ -25,5 +25,9 @@
     "centroid_l2_distance": 28.7922,
     "fisher_ratio_top3": 192.78
   },
-  "output_array": "farm_pca16.npy"
+  "output_array": "farm_pca16.npy",
+  "exported_images": [
+    "farm_pca_rgb.png",
+    "farm_pca_rgb.png"
+  ]
 }
