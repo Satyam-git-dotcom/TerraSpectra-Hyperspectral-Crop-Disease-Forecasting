@@ -86,34 +86,27 @@ function getMapStyle(mode: BasemapMode) {
 
 function getHeatmapCellColor(cell: HeatmapGridCell): [number, number, number, number] {
   if (cell.predictedClass === 0) {
-    // Road / Canal Corridor
-    return [100, 116, 139, 40];
+    return [100, 116, 139, 35];
   }
   const p = cell.blightProbability;
   if (p >= 0.85) {
-    // Severe pre-visual blight hotspot - Vivid Crimson Red
-    return [239, 68, 68, 225];
+    return [239, 68, 68, 230]; // Severe - Vivid Crimson
   }
   if (p >= 0.65) {
-    // High Risk - Deep Orange
-    return [249, 115, 22, 205];
+    return [249, 115, 22, 210]; // High - Deep Orange
   }
   if (p >= 0.35) {
-    // Moderate Risk - Amber Yellow
-    return [245, 158, 11, 160];
+    return [245, 158, 11, 170]; // Moderate - Amber
   }
   if (p >= 0.15) {
-    // Low Risk - Lime Green
-    return [132, 204, 22, 100];
+    return [132, 204, 22, 110]; // Low - Lime Green
   }
-  // Baseline Healthy Crop - Translucent Emerald
-  return [16, 185, 129, 35];
+  return [16, 185, 129, 35]; // Healthy - Translucent Emerald
 }
 
 function getHeatmapCellElevation(cell: HeatmapGridCell, isExtruded: boolean): number {
   if (!isExtruded || cell.predictedClass === 0) return 0;
-  if (cell.blightProbability < 0.15) return 2; // Flat baseline
-  // Elevate infected clusters into visible 3D risk columns
+  if (cell.blightProbability < 0.15) return 2;
   return Math.pow(cell.blightProbability, 1.4) * 140;
 }
 
@@ -122,6 +115,9 @@ export function FarmMap() {
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("satellite");
   const [pcaOpacity, setPcaOpacity] = useState<number>(0.65);
   const [heatmapExtruded, setHeatmapExtruded] = useState<boolean>(true);
+  const [riskThreshold, setRiskThreshold] = useState<number>(0.15);
+  const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+
   const [toggles, setToggles] = useState<LayerToggles>({
     boundary: true,
     quadrants: true,
@@ -137,10 +133,24 @@ export function FarmMap() {
     setToggles((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
+  // Dynamically filter cells based on the probability threshold slider
+  const filteredHeatmapCells = useMemo(() => {
+    return MOCK_HEATMAP_PREDICTIONS.cells.filter(
+      (c) => c.blightProbability >= riskThreshold
+    );
+  }, [riskThreshold]);
+
+  // Dynamic acreage calculation based on active filtered cells
+  const filteredAcreage = useMemo(() => {
+    // 40m x 40m = 1,600 sq meters per cell = 0.39537 acres
+    const cellAcreage = (40 * 40) / 4046.8564224;
+    return Math.round(filteredHeatmapCells.length * cellAcreage * 100) / 100;
+  }, [filteredHeatmapCells]);
+
   const layers = useMemo(() => {
     const activeLayers = [];
 
-    // 1. Georeferenced PCA False-Color Image Overlay (Base spectral analysis)
+    // 1. Georeferenced PCA False-Color Image Overlay
     if (toggles.pcaOverlay) {
       activeLayers.push(
         new BitmapLayer({
@@ -177,7 +187,7 @@ export function FarmMap() {
           getLineColor: [255, 255, 255, 80],
           getLineWidth: 1,
           lineWidthMinPixels: 1,
-          pickable: !toggles.diseaseHeatmap, // Give priority to heatmap cells when active
+          pickable: !toggles.diseaseHeatmap,
         })
       );
     }
@@ -199,12 +209,12 @@ export function FarmMap() {
       );
     }
 
-    // 4. Disease Prediction Heatmap (Deck.gl PolygonLayer)
+    // 4. Disease Prediction Heatmap (Deck.gl PolygonLayer with threshold filter)
     if (toggles.diseaseHeatmap) {
       activeLayers.push(
         new PolygonLayer<HeatmapGridCell>({
           id: "farm-disease-heatmap-layer",
-          data: MOCK_HEATMAP_PREDICTIONS.cells,
+          data: filteredHeatmapCells,
           getPolygon: (d) => d.polygon,
           getFillColor: (d) => getHeatmapCellColor(d),
           getLineColor: (d) =>
@@ -264,7 +274,7 @@ export function FarmMap() {
     }
 
     return activeLayers;
-  }, [toggles, pcaOpacity, heatmapExtruded]);
+  }, [toggles, pcaOpacity, heatmapExtruded, filteredHeatmapCells]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
@@ -276,7 +286,6 @@ export function FarmMap() {
         getTooltip={({ object }) => {
           if (!object) return null;
 
-          // Heatmap Grid Cell tooltip (highest priority when active)
           if (object.blightProbability !== undefined) {
             const c = object as HeatmapGridCell;
             const isSevere = c.blightProbability >= 0.65;
@@ -297,7 +306,6 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
 
           const props = object.properties;
 
-          // Quadrant tooltip
           if (props?.crop) {
             const q = props as QuadrantProperties;
             return {
@@ -307,14 +315,12 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
             };
           }
 
-          // Corridor tooltip
           if (props?.widthMeters) {
             return {
               text: `${props.name}\nType: ${props.type}\nWidth: ${props.widthMeters} m`,
             };
           }
 
-          // Parcel boundary fallback
           if (props?.acres) {
             return {
               text: `${props.name}\nArea: ~${props.acres} acres (${props.crs})`,
@@ -337,7 +343,7 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
           left: 16,
           padding: "14px 16px",
           borderRadius: 12,
-          background: "rgba(9, 13, 22, 0.92)",
+          background: "rgba(9, 13, 22, 0.93)",
           backdropFilter: "blur(12px)",
           border: "1px solid rgba(52, 211, 153, 0.35)",
           width: 370,
@@ -347,7 +353,7 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
         }}
       >
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: "#34d399" }}>
-          TERRASPECTRA · DAY 9 GIS HEATMAP
+          TERRASPECTRA · WEEK 2 FINALE
         </div>
         <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>
           {FARM_PARCEL_METADATA.shortName}
@@ -445,7 +451,7 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
                   fontWeight: 600,
                 }}
               >
-                ~{MOCK_HEATMAP_PREDICTIONS.atRiskAcreage} ac at risk
+                ~{filteredAcreage} ac visible
               </span>
             )}
           </div>
@@ -498,8 +504,32 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
                 </button>
               </div>
 
+              {/* Dynamic Risk Filter Slider */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#cbd5e1" }}>
+                  <span>Probability Filter:</span>
+                  <span style={{ fontWeight: 600, color: "#f87171" }}>
+                    &gt;= {Math.round(riskThreshold * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="0.85"
+                  step="0.05"
+                  value={riskThreshold}
+                  onChange={(e) => setRiskThreshold(parseFloat(e.target.value))}
+                  style={{
+                    width: "100%",
+                    accentColor: "#ef4444",
+                    cursor: "pointer",
+                    marginTop: 4,
+                  }}
+                />
+              </div>
+
               {/* Color Ramp Legend */}
-              <div style={{ marginTop: 6 }}>
+              <div style={{ marginTop: 4 }}>
                 <div
                   style={{
                     height: 8,
@@ -521,6 +551,78 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
                   <span>Moderate (35-65%)</span>
                   <span style={{ color: "#f87171", fontWeight: 600 }}>Severe (&gt;65%)</span>
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Agronomic Precision Spraying Calculator Card */}
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              cursor: "pointer",
+            }}
+            onClick={() => setShowAnalytics(!showAnalytics)}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#34d399",
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+              }}
+            >
+              🌱 Precision Spraying Impact
+            </div>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              {showAnalytics ? "▲" : "▼"}
+            </span>
+          </div>
+
+          {showAnalytics && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: "rgba(16, 185, 129, 0.08)",
+                border: "1px solid rgba(52, 211, 153, 0.25)",
+                fontSize: 11,
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Target Treatment:</span>
+                <strong style={{ color: "#f87171" }}>4.87 acres in Zone B</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Chemical Reduction:</span>
+                <strong style={{ color: "#34d399" }}>99.51% Saved</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Estimated Cost Savings:</span>
+                <strong style={{ color: "#6ee7b7" }}>~$47,200</strong>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  paddingTop: 6,
+                  borderTop: "1px solid rgba(52, 211, 153, 0.15)",
+                  color: "#fcd34d",
+                  fontSize: 10.5,
+                }}
+              >
+                ⏱️ <strong>Early Warning Window:</strong> 21 days before foliar chlorosis or necrosis appears.
               </div>
             </div>
           )}
