@@ -1,0 +1,92 @@
+{
+  "timestamp": "2026-11-21T16:40:17Z",
+  "audit_name": "Mid-Project Review \u2014 3D Tensor Extraction Audit",
+  "dataset_shape": [
+    16,
+    201,
+    201
+  ],
+  "spectral_channels": 16,
+  "spatial_pixels": 40401,
+  "total_farm_acres": 998.33,
+  "pca_compression_ratio": "220 bands -> 16 bands (92.73% tensor reduction)",
+  "batch_benchmarks": [
+    {
+      "batch_size": 16,
+      "patch_size": 9,
+      "tensor_shape": [
+        16,
+        1,
+        16,
+        9,
+        9
+      ],
+      "tensor_memory_mb": 0.079,
+      "raw_220band_equivalent_mb": 1.088,
+      "pca_memory_savings_percent": 92.73,
+      "throughput_samples_per_sec": 12993.3,
+      "throughput_acres_per_sec": 321.07,
+      "peak_ram_mb": 314.09
+    },
+    {
+      "batch_size": 32,
+      "patch_size": 9,
+      "tensor_shape": [
+        32,
+        1,
+        16,
+        9,
+        9
+      ],
+      "tensor_memory_mb": 0.158,
+      "raw_220band_equivalent_mb": 2.175,
+      "pca_memory_savings_percent": 92.73,
+      "throughput_samples_per_sec": 32178.1,
+      "throughput_acres_per_sec": 795.14,
+      "peak_ram_mb": 315.0
+    },
+    {
+      "batch_size": 64,
+      "patch_size": 9,
+      "tensor_shape": [
+        64,
+        1,
+        16,
+        9,
+        9
+      ],
+      "tensor_memory_mb": 0.316,
+      "raw_220band_equivalent_mb": 4.351,
+      "pca_memory_savings_percent": 92.73,
+      "throughput_samples_per_sec": 36214.6,
+      "throughput_acres_per_sec": 894.88,
+      "peak_ram_mb": 317.19
+    },
+    {
+      "batch_size": 128,
+      "patch_size": 9,
+      "tensor_shape": [
+        128,
+        1,
+        16,
+        9,
+        9
+      ],
+      "tensor_memory_mb": 0.633,
+      "raw_220band_equivalent_mb": 8.701,
+      "pca_memory_savings_percent": 92.73,
+      "throughput_samples_per_sec": 37283.6,
+      "throughput_acres_per_sec": 921.3,
+      "peak_ram_mb": 319.02
+    }
+  ],
+  "memory_leak_test": {
+    "patches_extracted": 10000,
+    "initial_rss_mb": 320.08,
+    "final_rss_mb": 320.28,
+    "rss_growth_mb": 0.2,
+    "leak_detected": false,
+    "status": "PASS: Memory is stable and reclaimed by garbage collector"
+  },
+  "audit_conclusion": "PASSED: Pipeline sustains high-throughput 3D batching with sub-2MB batch tensors and zero memory accumulation."
+}

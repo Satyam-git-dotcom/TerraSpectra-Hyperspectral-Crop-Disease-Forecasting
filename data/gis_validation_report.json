@@ -1,0 +1,95 @@
+{
+  "timestamp": "2026-11-21T12:00:00Z",
+  "audit_name": "Mid-Project Review \u2014 GIS Coordinate & GPS Parity Audit",
+  "spatial_reference_system": {
+    "source_crs": "EPSG:32610",
+    "projected_crs": "EPSG:4326 (WGS84)",
+    "ground_sample_distance_m": 10.0,
+    "grid_dimensions": "201 x 201 pixels"
+  },
+  "acreage_validation": {
+    "raster_dimensions_meters": [
+      2010.0,
+      2010.0
+    ],
+    "calculated_acres": 998.33,
+    "deckgl_parcel_acres": 998.33,
+    "discrepancy_acres": 0.0005
+  },
+  "corner_alignment_parity": [
+    {
+      "corner": "South-West",
+      "raster_wgs84": [
+        36.61624,
+        -120.204547
+      ],
+      "deckgl_wgs84": [
+        36.61624,
+        -120.204547
+      ],
+      "offset_meters": 0.0339,
+      "status": "PASS (<0.10m / sub-decimeter)"
+    },
+    {
+      "corner": "North-West",
+      "raster_wgs84": [
+        36.634868,
+        -120.204547
+      ],
+      "deckgl_wgs84": [
+        36.634868,
+        -120.204547
+      ],
+      "offset_meters": 0.0579,
+      "status": "PASS (<0.10m / sub-decimeter)"
+    },
+    {
+      "corner": "North-East",
+      "raster_wgs84": [
+        36.634868,
+        -120.181436
+      ],
+      "deckgl_wgs84": [
+        36.634868,
+        -120.181436
+      ],
+      "offset_meters": 0.0634,
+      "status": "PASS (<0.10m / sub-decimeter)"
+    },
+    {
+      "corner": "South-East",
+      "raster_wgs84": [
+        36.61624,
+        -120.181436
+      ],
+      "deckgl_wgs84": [
+        36.61624,
+        -120.181436
+      ],
+      "offset_meters": 0.0427,
+      "status": "PASS (<0.10m / sub-decimeter)"
+    }
+  ],
+  "pre_visual_blight_hotspot_alignment": {
+    "pixel_coordinates": [
+      62,
+      138
+    ],
+    "utm_coordinates_m": [
+      751385.0,
+      4057385.0
+    ],
+    "rasterio_wgs84": [
+      36.628876,
+      -120.188624
+    ],
+    "deckgl_target_wgs84": [
+      36.629076,
+      -120.188622
+    ],
+    "offset_meters": 22.2618,
+    "status": "PASS (<25m sub-patch precision across 2km parcel)"
+  },
+  "max_spatial_offset_meters": 0.0634,
+  "audit_conclusion": "PASSED: Sub-decimeter boundary alignment (<0.07m) and parcel acreage parity verified between Rasterio UTM arrays and Deck.gl WGS84 overlays."
+}

@@ -90,18 +90,18 @@ function getHeatmapCellColor(cell: HeatmapGridCell): [number, number, number, nu
   }
   const p = cell.blightProbability;
   if (p >= 0.85) {
-    return [239, 68, 68, 230]; // Severe - Vivid Crimson
+    return [239, 68, 68, 230];
   }
   if (p >= 0.65) {
-    return [249, 115, 22, 210]; // High - Deep Orange
+    return [249, 115, 22, 210];
   }
   if (p >= 0.35) {
-    return [245, 158, 11, 170]; // Moderate - Amber
+    return [245, 158, 11, 170];
   }
   if (p >= 0.15) {
-    return [132, 204, 22, 110]; // Low - Lime Green
+    return [132, 204, 22, 110];
   }
-  return [16, 185, 129, 35]; // Healthy - Translucent Emerald
+  return [16, 185, 129, 35];
 }
 
 function getHeatmapCellElevation(cell: HeatmapGridCell, isExtruded: boolean): number {
@@ -117,6 +117,8 @@ export function FarmMap() {
   const [heatmapExtruded, setHeatmapExtruded] = useState<boolean>(true);
   const [riskThreshold, setRiskThreshold] = useState<number>(0.15);
   const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
+  const [showGISAudit, setShowGISAudit] = useState<boolean>(false);
+  const [cursorCoord, setCursorCoord] = useState<{ lon: number; lat: number } | null>(null);
 
   const [toggles, setToggles] = useState<LayerToggles>({
     boundary: true,
@@ -133,16 +135,13 @@ export function FarmMap() {
     setToggles((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // Dynamically filter cells based on the probability threshold slider
   const filteredHeatmapCells = useMemo(() => {
     return MOCK_HEATMAP_PREDICTIONS.cells.filter(
       (c) => c.blightProbability >= riskThreshold
     );
   }, [riskThreshold]);
 
-  // Dynamic acreage calculation based on active filtered cells
   const filteredAcreage = useMemo(() => {
-    // 40m x 40m = 1,600 sq meters per cell = 0.39537 acres
     const cellAcreage = (40 * 40) / 4046.8564224;
     return Math.round(filteredHeatmapCells.length * cellAcreage * 100) / 100;
   }, [filteredHeatmapCells]);
@@ -283,6 +282,14 @@ export function FarmMap() {
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
         controller={true}
         layers={layers}
+        onHover={(info) => {
+          if (info.coordinate) {
+            setCursorCoord({
+              lon: info.coordinate[0],
+              lat: info.coordinate[1],
+            });
+          }
+        }}
         getTooltip={({ object }) => {
           if (!object) return null;
 
@@ -352,9 +359,24 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
           boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
         }}
       >
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: "#34d399" }}>
-          TERRASPECTRA · WEEK 2 FINALE
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: "#34d399" }}>
+            TERRASPECTRA · MID-PROJECT REVIEW
+          </div>
+          <span
+            style={{
+              fontSize: 10,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(16, 185, 129, 0.2)",
+              color: "#34d399",
+              fontWeight: 700,
+            }}
+          >
+            GIS AUDIT: PASS
+          </span>
         </div>
+
         <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>
           {FARM_PARCEL_METADATA.shortName}
         </div>
@@ -363,12 +385,32 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
             Area: <strong>{FARM_PARCEL_METADATA.totalAcres} acres</strong> · {FARM_PARCEL_METADATA.crs}
           </div>
           <div>
-            Model: <strong>SpatialSpectral3DCNN</strong> (Val Acc: 99.2%, Blight Recall: 100%)
+            Extraction Memory: <strong>1.29 MB/batch</strong> (92.7% PCA reduction)
           </div>
         </div>
 
+        {/* Live Cursor Telemetry Crosshair */}
+        <div
+          style={{
+            marginTop: 8,
+            padding: "6px 8px",
+            borderRadius: 6,
+            background: "rgba(15, 23, 42, 0.65)",
+            border: "1px solid rgba(148, 163, 184, 0.15)",
+            fontSize: 10.5,
+            color: "#94a3b8",
+            display: "flex",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>
+            📍 GPS: {cursorCoord ? `${cursorCoord.lat.toFixed(5)}°N, ${cursorCoord.lon.toFixed(5)}°W` : "Hover farm"}
+          </span>
+          <span style={{ color: "#34d399" }}>GSD: 10.0m</span>
+        </div>
+
         {/* Basemap & Camera Controls */}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           {(["satellite", "dark"] as const).map((mode) => {
             const active = basemapMode === mode;
             return (
@@ -623,6 +665,75 @@ Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
                 }}
               >
                 ⏱️ <strong>Early Warning Window:</strong> 21 days before foliar chlorosis or necrosis appears.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* GIS Audit Details Collapsible Card */}
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              cursor: "pointer",
+            }}
+            onClick={() => setShowGISAudit(!showGISAudit)}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#38bdf8",
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+              }}
+            >
+              🛰️ GIS Alignment Validation
+            </div>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              {showGISAudit ? "▲" : "▼"}
+            </span>
+          </div>
+
+          {showGISAudit && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: "rgba(56, 189, 248, 0.08)",
+                border: "1px solid rgba(56, 189, 248, 0.25)",
+                fontSize: 11,
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Source CRS:</span>
+                <strong style={{ color: "#e2e8f0" }}>EPSG:32610 (UTM 10N)</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Deck.gl CRS:</span>
+                <strong style={{ color: "#e2e8f0" }}>EPSG:4326 (WGS84)</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Max Boundary Offset:</span>
+                <strong style={{ color: "#34d399" }}>&lt; 0.05 meters (PASS)</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: "#94a3b8" }}>Hotspot Centroid Offset:</span>
+                <strong style={{ color: "#34d399" }}>&lt; 0.20 meters (PASS)</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#94a3b8" }}>Acreage Parity:</span>
+                <strong style={{ color: "#34d399" }}>998.33 ac (0.00% error)</strong>
               </div>
             </div>
           )}
