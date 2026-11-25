@@ -7,7 +7,6 @@ import {
   DEFAULT_FARM_BOUNDS,
   FARM_BOUNDARY_GEOJSON,
   FARM_CENTER,
-  FARM_PARCEL_METADATA,
 } from "../data/farmBoundary";
 import {
   FIELD_QUADRANTS_GEOJSON,
@@ -20,17 +19,17 @@ import {
   MOCK_HEATMAP_PREDICTIONS,
   type HeatmapGridCell,
 } from "../data/mockHeatmap";
-
-type BasemapMode = "satellite" | "dark";
-
-interface LayerToggles {
-  boundary: boolean;
-  quadrants: boolean;
-  labels: boolean;
-  corridors: boolean;
-  pcaOverlay: boolean;
-  diseaseHeatmap: boolean;
-}
+import {
+  HeaderBar,
+  type BasemapMode,
+  type CameraPreset,
+} from "./HeaderBar";
+import {
+  LayerControlPanel,
+  type LayerToggles,
+} from "./LayerControlPanel";
+import { TelemetryPanel } from "./TelemetryPanel";
+import { BottomStatusBar } from "./BottomStatusBar";
 
 const INITIAL_VIEW_STATE: MapViewState = {
   longitude: FARM_CENTER.longitude,
@@ -38,6 +37,12 @@ const INITIAL_VIEW_STATE: MapViewState = {
   zoom: 13.8,
   pitch: 45,
   bearing: -15,
+};
+
+// Blight hotspot center (Zone B)
+const HOTSPOT_COORDINATES = {
+  longitude: -120.1885,
+  latitude: 36.6285,
 };
 
 function createRasterStyle(id: string, tiles: string[], attribution: string) {
@@ -90,18 +95,18 @@ function getHeatmapCellColor(cell: HeatmapGridCell): [number, number, number, nu
   }
   const p = cell.blightProbability;
   if (p >= 0.85) {
-    return [239, 68, 68, 230];
+    return [239, 68, 68, 235];
   }
   if (p >= 0.65) {
-    return [249, 115, 22, 210];
+    return [249, 115, 22, 215];
   }
   if (p >= 0.35) {
-    return [245, 158, 11, 170];
+    return [245, 158, 11, 180];
   }
   if (p >= 0.15) {
-    return [132, 204, 22, 110];
+    return [132, 204, 22, 120];
   }
-  return [16, 185, 129, 35];
+  return [16, 185, 129, 45];
 }
 
 function getHeatmapCellElevation(cell: HeatmapGridCell, isExtruded: boolean): number {
@@ -113,12 +118,17 @@ function getHeatmapCellElevation(cell: HeatmapGridCell, isExtruded: boolean): nu
 export function FarmMap() {
   const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW_STATE);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("satellite");
+  const [activePreset, setActivePreset] = useState<CameraPreset>("overview");
   const [pcaOpacity, setPcaOpacity] = useState<number>(0.65);
   const [heatmapExtruded, setHeatmapExtruded] = useState<boolean>(true);
   const [riskThreshold, setRiskThreshold] = useState<number>(0.15);
-  const [showAnalytics, setShowAnalytics] = useState<boolean>(true);
-  const [showGISAudit, setShowGISAudit] = useState<boolean>(false);
+
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState<boolean>(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState<boolean>(true);
+
   const [cursorCoord, setCursorCoord] = useState<{ lon: number; lat: number } | null>(null);
+  const [activeCell, setActiveCell] = useState<HeatmapGridCell | null>(null);
+  const [activeQuadrant, setActiveQuadrant] = useState<QuadrantProperties | null>(null);
 
   const [toggles, setToggles] = useState<LayerToggles>({
     boundary: true,
@@ -145,6 +155,41 @@ export function FarmMap() {
     const cellAcreage = (40 * 40) / 4046.8564224;
     return Math.round(filteredHeatmapCells.length * cellAcreage * 100) / 100;
   }, [filteredHeatmapCells]);
+
+  // Camera Presets handler with smooth transition
+  const handleCameraPreset = (preset: CameraPreset) => {
+    setActivePreset(preset);
+    if (preset === "hotspot") {
+      setViewState((prev) => ({
+        ...prev,
+        longitude: HOTSPOT_COORDINATES.longitude,
+        latitude: HOTSPOT_COORDINATES.latitude,
+        zoom: 15.2,
+        pitch: 52,
+        bearing: 25,
+      }));
+    } else if (preset === "tactical") {
+      setViewState((prev) => ({
+        ...prev,
+        longitude: FARM_CENTER.longitude,
+        latitude: FARM_CENTER.latitude,
+        zoom: 14.1,
+        pitch: 55,
+        bearing: -25,
+      }));
+    } else if (preset === "nadir") {
+      setViewState((prev) => ({
+        ...prev,
+        longitude: FARM_CENTER.longitude,
+        latitude: FARM_CENTER.latitude,
+        zoom: 13.8,
+        pitch: 0,
+        bearing: 0,
+      }));
+    } else {
+      setViewState(INITIAL_VIEW_STATE);
+    }
+  };
 
   const layers = useMemo(() => {
     const activeLayers = [];
@@ -180,13 +225,19 @@ export function FarmMap() {
           getFillColor: (f) => {
             const base = (f.properties as QuadrantProperties).fillColor;
             return toggles.diseaseHeatmap || toggles.pcaOverlay
-              ? [base[0], base[1], base[2], Math.min(base[3], 18)]
+              ? [base[0], base[1], base[2], Math.min(base[3], 20)]
               : base;
           },
           getLineColor: [255, 255, 255, 80],
           getLineWidth: 1,
           lineWidthMinPixels: 1,
-          pickable: !toggles.diseaseHeatmap,
+          pickable: true,
+          onClick: (info) => {
+            if (info.object?.properties) {
+              setActiveQuadrant(info.object.properties as QuadrantProperties);
+              setActiveCell(null);
+            }
+          },
         })
       );
     }
@@ -208,7 +259,7 @@ export function FarmMap() {
       );
     }
 
-    // 4. Disease Prediction Heatmap (Deck.gl PolygonLayer with threshold filter)
+    // 4. Disease Prediction Heatmap (Deck.gl PolygonLayer with 3D extrusion)
     if (toggles.diseaseHeatmap) {
       activeLayers.push(
         new PolygonLayer<HeatmapGridCell>({
@@ -219,7 +270,7 @@ export function FarmMap() {
           getLineColor: (d) =>
             d.blightProbability >= 0.65
               ? [239, 68, 68, 255]
-              : [255, 255, 255, 30],
+              : [255, 255, 255, 35],
           getLineWidth: 1,
           lineWidthMinPixels: 1,
           extruded: heatmapExtruded,
@@ -228,7 +279,12 @@ export function FarmMap() {
           wireframe: false,
           pickable: true,
           autoHighlight: true,
-          highlightColor: [255, 255, 255, 90],
+          highlightColor: [255, 255, 255, 95],
+          onClick: (info) => {
+            if (info.object) {
+              setActiveCell(info.object);
+            }
+          },
         })
       );
     }
@@ -242,8 +298,8 @@ export function FarmMap() {
           filled: false,
           stroked: true,
           extruded: false,
-          getLineColor: [52, 211, 153, 235],
-          getLineWidth: 6,
+          getLineColor: [52, 211, 153, 240],
+          getLineWidth: 5,
           lineWidthMinPixels: 2,
           pickable: true,
         })
@@ -260,7 +316,7 @@ export function FarmMap() {
           getText: (d) => d.text,
           getSize: 12,
           getColor: [248, 250, 252, 240],
-          getBackgroundColor: [15, 23, 42, 200],
+          getBackgroundColor: [10, 15, 26, 210],
           background: true,
           backgroundPadding: [8, 4],
           fontFamily: "Inter, system-ui, -apple-system, sans-serif",
@@ -276,7 +332,8 @@ export function FarmMap() {
   }, [toggles, pcaOpacity, heatmapExtruded, filteredHeatmapCells]);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <div style={{ position: "relative", width: "100%", height: "100%", background: "#070a12" }}>
+      {/* 3D Map Canvas */}
       <DeckGL
         viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
@@ -289,570 +346,86 @@ export function FarmMap() {
               lat: info.coordinate[1],
             });
           }
+          if (info.object) {
+            if ((info.object as HeatmapGridCell).blightProbability !== undefined) {
+              setActiveCell(info.object as HeatmapGridCell);
+            } else if (info.object.properties?.crop) {
+              setActiveQuadrant(info.object.properties as QuadrantProperties);
+            }
+          }
         }}
         getTooltip={({ object }) => {
           if (!object) return null;
-
           if (object.blightProbability !== undefined) {
             const c = object as HeatmapGridCell;
-            const isSevere = c.blightProbability >= 0.65;
-            const isModerate = c.blightProbability >= 0.35 && c.blightProbability < 0.65;
-            const alertText = isSevere
-              ? "\n⚠️ ACTION ALERT: Pre-visual fungal blight hotspot detected. Schedule targeted pesticide within 5–7 days before foliar necrosis."
-              : isModerate
-              ? "\n⚠️ WATCH ZONE: Chemical chlorophyll reflectance shift detected. Monitor canopy progression."
-              : "\n✅ HEALTHY: Spectral reflection within normal crop baseline.";
-
             return {
               text: `CELL [${c.gridRow}, ${c.gridCol}] · ${c.zone}
-Risk Status: ${c.riskLevel.toUpperCase()}
-Blight Probability: ${(c.blightProbability * 100).toFixed(1)}%
-Chemical Stress Index: ${(c.stressScore * 100).toFixed(1)}%${alertText}`,
+Blight Risk: ${(c.blightProbability * 100).toFixed(1)}% (${c.riskLevel.toUpperCase()})
+Stress Index: ${(c.stressScore * 100).toFixed(1)}%`,
             };
           }
-
-          const props = object.properties;
-
-          if (props?.crop) {
-            const q = props as QuadrantProperties;
+          if (object.properties?.crop) {
+            const q = object.properties as QuadrantProperties;
             return {
-              text: `${q.name} (${q.code})\nCrop: ${q.crop} (${q.variety})\nArea: ${q.acres} acres\nIrrigation: ${q.irrigation}${
-                q.hasStressZone ? "\n⚠️ Historical Fungal Blight Anomaly Zone" : ""
-              }`,
+              text: `${q.name} (${q.code})\nCrop: ${q.crop} (${q.variety})\nArea: ${q.acres} acres`,
             };
           }
-
-          if (props?.widthMeters) {
-            return {
-              text: `${props.name}\nType: ${props.type}\nWidth: ${props.widthMeters} m`,
-            };
-          }
-
-          if (props?.acres) {
-            return {
-              text: `${props.name}\nArea: ~${props.acres} acres (${props.crs})`,
-            };
-          }
-
           return null;
         }}
       >
         <Map mapStyle={mapStyle} reuseMaps>
-          <NavigationControl position="bottom-right" />
+          <NavigationControl position="bottom-right" style={{ marginBottom: 46, marginRight: 12 }} />
         </Map>
       </DeckGL>
 
-      {/* Primary Telemetry & Controls HUD */}
-      <div
-        style={{
-          position: "absolute",
-          top: 16,
-          left: 16,
-          padding: "14px 16px",
-          borderRadius: 12,
-          background: "rgba(9, 13, 22, 0.93)",
-          backdropFilter: "blur(12px)",
-          border: "1px solid rgba(52, 211, 153, 0.35)",
-          width: 370,
-          maxHeight: "calc(100vh - 32px)",
-          overflowY: "auto",
-          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.1, color: "#34d399" }}>
-            TERRASPECTRA · MID-PROJECT REVIEW
-          </div>
-          <span
-            style={{
-              fontSize: 10,
-              padding: "2px 6px",
-              borderRadius: 4,
-              background: "rgba(16, 185, 129, 0.2)",
-              color: "#34d399",
-              fontWeight: 700,
-            }}
-          >
-            GIS AUDIT: PASS
-          </span>
-        </div>
+      {/* Top Command Bar */}
+      <HeaderBar
+        basemapMode={basemapMode}
+        onBasemapChange={setBasemapMode}
+        onCameraPreset={handleCameraPreset}
+        activePreset={activePreset}
+        isLeftPanelOpen={isLeftPanelOpen}
+        isRightPanelOpen={isRightPanelOpen}
+        onToggleLeftPanel={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
+        onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
+      />
 
-        <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>
-          {FARM_PARCEL_METADATA.shortName}
-        </div>
-        <div style={{ fontSize: 12, color: "#cbd5e1", marginTop: 6, lineHeight: 1.5 }}>
-          <div>
-            Area: <strong>{FARM_PARCEL_METADATA.totalAcres} acres</strong> · {FARM_PARCEL_METADATA.crs}
-          </div>
-          <div>
-            Extraction Memory: <strong>1.29 MB/batch</strong> (92.7% PCA reduction)
-          </div>
-        </div>
+      {/* Left Flank: Layer & Heatmap Controls */}
+      {isLeftPanelOpen && (
+        <LayerControlPanel
+          toggles={toggles}
+          onToggleLayer={toggleLayer}
+          pcaOpacity={pcaOpacity}
+          onPcaOpacityChange={setPcaOpacity}
+          heatmapExtruded={heatmapExtruded}
+          onHeatmapExtrudedChange={setHeatmapExtruded}
+          riskThreshold={riskThreshold}
+          onRiskThresholdChange={setRiskThreshold}
+          filteredAcreage={filteredAcreage}
+          totalVisibleCells={filteredHeatmapCells.length}
+          onJumpToHotspot={() => handleCameraPreset("hotspot")}
+        />
+      )}
 
-        {/* Live Cursor Telemetry Crosshair */}
-        <div
-          style={{
-            marginTop: 8,
-            padding: "6px 8px",
-            borderRadius: 6,
-            background: "rgba(15, 23, 42, 0.65)",
-            border: "1px solid rgba(148, 163, 184, 0.15)",
-            fontSize: 10.5,
-            color: "#94a3b8",
-            display: "flex",
-            justifyContent: "space-between",
+      {/* Right Flank: Telemetry & Spectral Anomaly Inspector */}
+      {isRightPanelOpen && (
+        <TelemetryPanel
+          activeCell={activeCell}
+          activeQuadrant={activeQuadrant}
+          onClearActive={() => {
+            setActiveCell(null);
+            setActiveQuadrant(null);
           }}
-        >
-          <span>
-            📍 GPS: {cursorCoord ? `${cursorCoord.lat.toFixed(5)}°N, ${cursorCoord.lon.toFixed(5)}°W` : "Hover farm"}
-          </span>
-          <span style={{ color: "#34d399" }}>GSD: 10.0m</span>
-        </div>
+        />
+      )}
 
-        {/* Basemap & Camera Controls */}
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          {(["satellite", "dark"] as const).map((mode) => {
-            const active = basemapMode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setBasemapMode(mode)}
-                style={{
-                  flex: 1,
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: active
-                    ? "1px solid #34d399"
-                    : "1px solid rgba(148, 163, 184, 0.25)",
-                  background: active ? "rgba(16, 185, 129, 0.2)" : "rgba(15, 23, 42, 0.6)",
-                  color: active ? "#6ee7b7" : "#94a3b8",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {mode === "dark" ? "Dark GIS" : "Satellite"}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setViewState(INITIAL_VIEW_STATE)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "1px solid rgba(148, 163, 184, 0.25)",
-              background: "rgba(15, 23, 42, 0.6)",
-              color: "#cbd5e1",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            Reset
-          </button>
-        </div>
-
-        {/* 3D Disease Risk Heatmap Section */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 10,
-            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 700,
-                color: toggles.diseaseHeatmap ? "#ef4444" : "#94a3b8",
-                cursor: "pointer",
-                userSelect: "none",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={toggles.diseaseHeatmap}
-                onChange={() => toggleLayer("diseaseHeatmap")}
-                style={{ accentColor: "#ef4444", cursor: "pointer" }}
-              />
-              🔥 3D Disease Risk Heatmap
-            </label>
-            {toggles.diseaseHeatmap && (
-              <span
-                style={{
-                  fontSize: 10.5,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  background: "rgba(239, 68, 68, 0.2)",
-                  color: "#f87171",
-                  fontWeight: 600,
-                }}
-              >
-                ~{filteredAcreage} ac visible
-              </span>
-            )}
-          </div>
-
-          {toggles.diseaseHeatmap && (
-            <div style={{ marginTop: 8 }}>
-              {/* Extrusion Mode Toggle */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setHeatmapExtruded(true)}
-                  style={{
-                    flex: 1,
-                    padding: "4px 8px",
-                    borderRadius: 5,
-                    border: heatmapExtruded
-                      ? "1px solid #ef4444"
-                      : "1px solid rgba(148, 163, 184, 0.2)",
-                    background: heatmapExtruded
-                      ? "rgba(239, 68, 68, 0.25)"
-                      : "rgba(15, 23, 42, 0.5)",
-                    color: heatmapExtruded ? "#fca5a5" : "#94a3b8",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  3D Extruded Pillars
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHeatmapExtruded(false)}
-                  style={{
-                    flex: 1,
-                    padding: "4px 8px",
-                    borderRadius: 5,
-                    border: !heatmapExtruded
-                      ? "1px solid #ef4444"
-                      : "1px solid rgba(148, 163, 184, 0.2)",
-                    background: !heatmapExtruded
-                      ? "rgba(239, 68, 68, 0.25)"
-                      : "rgba(15, 23, 42, 0.5)",
-                    color: !heatmapExtruded ? "#fca5a5" : "#94a3b8",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  2D Flat Grid
-                </button>
-              </div>
-
-              {/* Dynamic Risk Filter Slider */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#cbd5e1" }}>
-                  <span>Probability Filter:</span>
-                  <span style={{ fontWeight: 600, color: "#f87171" }}>
-                    &gt;= {Math.round(riskThreshold * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="0.85"
-                  step="0.05"
-                  value={riskThreshold}
-                  onChange={(e) => setRiskThreshold(parseFloat(e.target.value))}
-                  style={{
-                    width: "100%",
-                    accentColor: "#ef4444",
-                    cursor: "pointer",
-                    marginTop: 4,
-                  }}
-                />
-              </div>
-
-              {/* Color Ramp Legend */}
-              <div style={{ marginTop: 4 }}>
-                <div
-                  style={{
-                    height: 8,
-                    borderRadius: 4,
-                    background:
-                      "linear-gradient(to right, #10b981 0%, #84cc16 25%, #f59e0b 55%, #ef4444 100%)",
-                  }}
-                />
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 10,
-                    color: "#94a3b8",
-                    marginTop: 3,
-                  }}
-                >
-                  <span>Healthy (&lt;15%)</span>
-                  <span>Moderate (35-65%)</span>
-                  <span style={{ color: "#f87171", fontWeight: 600 }}>Severe (&gt;65%)</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Agronomic Precision Spraying Calculator Card */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 10,
-            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => setShowAnalytics(!showAnalytics)}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#34d399",
-                textTransform: "uppercase",
-                letterSpacing: 0.8,
-              }}
-            >
-              🌱 Precision Spraying Impact
-            </div>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {showAnalytics ? "▲" : "▼"}
-            </span>
-          </div>
-
-          {showAnalytics && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "10px 12px",
-                borderRadius: 8,
-                background: "rgba(16, 185, 129, 0.08)",
-                border: "1px solid rgba(52, 211, 153, 0.25)",
-                fontSize: 11,
-                lineHeight: 1.5,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Target Treatment:</span>
-                <strong style={{ color: "#f87171" }}>4.87 acres in Zone B</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Chemical Reduction:</span>
-                <strong style={{ color: "#34d399" }}>99.51% Saved</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Estimated Cost Savings:</span>
-                <strong style={{ color: "#6ee7b7" }}>~$47,200</strong>
-              </div>
-              <div
-                style={{
-                  marginTop: 6,
-                  paddingTop: 6,
-                  borderTop: "1px solid rgba(52, 211, 153, 0.15)",
-                  color: "#fcd34d",
-                  fontSize: 10.5,
-                }}
-              >
-                ⏱️ <strong>Early Warning Window:</strong> 21 days before foliar chlorosis or necrosis appears.
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* GIS Audit Details Collapsible Card */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 10,
-            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => setShowGISAudit(!showGISAudit)}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#38bdf8",
-                textTransform: "uppercase",
-                letterSpacing: 0.8,
-              }}
-            >
-              🛰️ GIS Alignment Validation
-            </div>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>
-              {showGISAudit ? "▲" : "▼"}
-            </span>
-          </div>
-
-          {showGISAudit && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "10px 12px",
-                borderRadius: 8,
-                background: "rgba(56, 189, 248, 0.08)",
-                border: "1px solid rgba(56, 189, 248, 0.25)",
-                fontSize: 11,
-                lineHeight: 1.5,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Source CRS:</span>
-                <strong style={{ color: "#e2e8f0" }}>EPSG:32610 (UTM 10N)</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Deck.gl CRS:</span>
-                <strong style={{ color: "#e2e8f0" }}>EPSG:4326 (WGS84)</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Max Boundary Offset:</span>
-                <strong style={{ color: "#34d399" }}>&lt; 0.05 meters (PASS)</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: "#94a3b8" }}>Hotspot Centroid Offset:</span>
-                <strong style={{ color: "#34d399" }}>&lt; 0.20 meters (PASS)</strong>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#94a3b8" }}>Acreage Parity:</span>
-                <strong style={{ color: "#34d399" }}>998.33 ac (0.00% error)</strong>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Base Geographical Layers Toggle */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 10,
-            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#94a3b8",
-              textTransform: "uppercase",
-              letterSpacing: 0.8,
-              marginBottom: 6,
-            }}
-          >
-            Geographical Layers
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 10px" }}>
-            {[
-              { key: "boundary", label: "Perimeter" },
-              { key: "quadrants", label: "Crop Zones (A–D)" },
-              { key: "labels", label: "Zone Labels" },
-              { key: "corridors", label: "Access & Canals" },
-            ].map(({ key, label }) => {
-              const checked = toggles[key as keyof LayerToggles];
-              return (
-                <label
-                  key={key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11,
-                    color: checked ? "#e2e8f0" : "#64748b",
-                    cursor: "pointer",
-                    userSelect: "none",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleLayer(key as keyof LayerToggles)}
-                    style={{ accentColor: "#34d399", cursor: "pointer" }}
-                  />
-                  {label}
-                </label>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* PCA False-Color Overlay Controls */}
-        <div
-          style={{
-            marginTop: 12,
-            paddingTop: 10,
-            borderTop: "1px solid rgba(148, 163, 184, 0.15)",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                fontWeight: 600,
-                color: toggles.pcaOverlay ? "#34d399" : "#64748b",
-                cursor: "pointer",
-                userSelect: "none",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={toggles.pcaOverlay}
-                onChange={() => toggleLayer("pcaOverlay")}
-                style={{ accentColor: "#34d399", cursor: "pointer" }}
-              />
-              PCA False-Color (PC1–3)
-            </label>
-            {toggles.pcaOverlay && (
-              <span style={{ fontSize: 11, color: "#94a3b8" }}>
-                {Math.round(pcaOpacity * 100)}%
-              </span>
-            )}
-          </div>
-
-          {toggles.pcaOverlay && (
-            <div style={{ marginTop: 8 }}>
-              <input
-                type="range"
-                min="0.1"
-                max="1.0"
-                step="0.05"
-                value={pcaOpacity}
-                onChange={(e) => setPcaOpacity(parseFloat(e.target.value))}
-                style={{
-                  width: "100%",
-                  accentColor: "#34d399",
-                  cursor: "pointer",
-                }}
-              />
-            </div>
-          )}
-        </div>
-
-        <div style={{ fontSize: 11, color: "#64748b", marginTop: 10 }}>
-          View: {viewState.latitude.toFixed(4)}°N, {viewState.longitude.toFixed(4)}°E · Pitch{" "}
-          {Math.round(viewState.pitch ?? 0)}°
-        </div>
-      </div>
+      {/* Bottom Coordinate & System Status Bar */}
+      <BottomStatusBar
+        cursorCoord={cursorCoord}
+        pitch={viewState.pitch ?? 0}
+        bearing={viewState.bearing ?? 0}
+        zoom={viewState.zoom ?? 13.8}
+      />
     </div>
   );
 }
